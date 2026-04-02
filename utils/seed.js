@@ -19,19 +19,29 @@ const TRACKS_DIR = path.join(__dirname, '..', 'uploads', 'tracks');
 fs.mkdirSync(COVERS_DIR, { recursive: true });
 fs.mkdirSync(TRACKS_DIR, { recursive: true });
 
-// Yuklab olish funksiyasi
-function downloadFile(url, dest) {
+// Yuklab olish funksiyasi (redirect support)
+function downloadFile(url, dest, maxRedirects = 5) {
   return new Promise((resolve, reject) => {
-    if (fs.existsSync(dest)) { resolve(); return; }
-    const file = fs.createWriteStream(dest);
+    // 0 baytli yoki mavjud bo'lmasa qayta yuklash
+    if (fs.existsSync(dest) && fs.statSync(dest).size > 0) { resolve(); return; }
+
     const client = url.startsWith('https') ? https : http;
     client.get(url, (res) => {
-      if (res.statusCode === 301 || res.statusCode === 302) {
-        downloadFile(res.headers.location, dest).then(resolve).catch(reject);
+      // Redirect
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && maxRedirects > 0) {
+        res.resume(); // drain
+        downloadFile(res.headers.location, dest, maxRedirects - 1).then(resolve).catch(reject);
         return;
       }
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+        return;
+      }
+      const file = fs.createWriteStream(dest);
       res.pipe(file);
-      file.on('finish', () => { file.close(); resolve(); });
+      file.on('finish', () => { file.close(resolve); });
+      file.on('error', (e) => { fs.unlink(dest, () => {}); reject(e); });
     }).on('error', (e) => { fs.unlink(dest, () => {}); reject(e); });
   });
 }
