@@ -3,12 +3,38 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const https = require('https');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
 
 const User = require('../models/User');
 const Track = require('../models/Track');
 const Genre = require('../models/Genre');
 const Report = require('../models/Report');
 const Playlist = require('../models/Playlist');
+
+const COVERS_DIR = path.join(__dirname, '..', 'uploads', 'covers');
+const TRACKS_DIR = path.join(__dirname, '..', 'uploads', 'tracks');
+fs.mkdirSync(COVERS_DIR, { recursive: true });
+fs.mkdirSync(TRACKS_DIR, { recursive: true });
+
+// Yuklab olish funksiyasi
+function downloadFile(url, dest) {
+  return new Promise((resolve, reject) => {
+    if (fs.existsSync(dest)) { resolve(); return; }
+    const file = fs.createWriteStream(dest);
+    const client = url.startsWith('https') ? https : http;
+    client.get(url, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        downloadFile(res.headers.location, dest).then(resolve).catch(reject);
+        return;
+      }
+      res.pipe(file);
+      file.on('finish', () => { file.close(); resolve(); });
+    }).on('error', (e) => { fs.unlink(dest, () => {}); reject(e); });
+  });
+}
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/aridai';
 const JWT_SECRET = process.env.JWT_SECRET || 'aridai_secret_key_2024';
@@ -233,6 +259,20 @@ async function seed() {
     });
     console.log(`✅ Админ создан: ${admin.email} / пароль: admin123`);
 
+    // ---- Фото артистов ----
+    console.log('\n📸 Загрузка фото артистов...');
+    for (let i = 0; i < artistsData.length; i++) {
+      const filename = `artist-${i}.jpg`;
+      const dest = path.join(COVERS_DIR, filename);
+      try {
+        await downloadFile(`https://picsum.photos/seed/artist${i}/400/400`, dest);
+        artistsData[i]._imageFile = `/uploads/covers/${filename}`;
+      } catch (_) {
+        artistsData[i]._imageFile = '';
+      }
+    }
+    console.log('✅ Фото загружены');
+
     // ---- Артисты ----
     console.log('\n🎤 Создание артистов...');
     const artists = [];
@@ -243,7 +283,7 @@ async function seed() {
         role: 'artist',
         artistName: data.artistName,
         artistBio: data.artistBio,
-        artistImage: '',
+        artistImage: data._imageFile || '',
         isVerified: data.isVerified,
         googleId: `artist_google_${data.email}`,
       });
@@ -265,10 +305,29 @@ async function seed() {
     }
     console.log(`✅ Создано ${listeners.length} слушателей`);
 
+    // ---- Обложки треков ----
+    console.log('\n🖼️  Загрузка обложек треков...');
+    let coverIndex = 0;
+    for (let i = 0; i < tracksPerArtist.length; i++) {
+      for (let j = 0; j < tracksPerArtist[i].length; j++) {
+        const filename = `cover-${coverIndex}.jpg`;
+        const dest = path.join(COVERS_DIR, filename);
+        try {
+          await downloadFile(`https://picsum.photos/seed/track${coverIndex}/500/500`, dest);
+          tracksPerArtist[i][j]._coverFile = `/uploads/covers/${filename}`;
+        } catch (_) {
+          tracksPerArtist[i][j]._coverFile = '';
+        }
+        coverIndex++;
+      }
+    }
+    console.log(`✅ Загружено ${coverIndex} обложек`);
+
     // ---- Треки ----
     console.log('\n🎶 Создание треков...');
     const allTracks = [];
     const genreTrackCounts = {};
+    const defaultAudio = '/uploads/tracks/default.mp3';
 
     for (let i = 0; i < artists.length; i++) {
       const artist = artists[i];
@@ -315,8 +374,8 @@ async function seed() {
           album: trackData.album,
           genre: trackData.genre,
           description,
-          coverImage: '',
-          audioFile: `/uploads/audio/${artist.artistName.toLowerCase().replace(/\s+/g, '-')}-${trackData.title.toLowerCase().replace(/\s+/g, '-')}.mp3`,
+          coverImage: trackData._coverFile || '',
+          audioFile: defaultAudio,
           duration: trackData.duration,
           playCount: trackData.playCount,
           likesCount,

@@ -22,8 +22,14 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Статические файлы
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Статические файлы (fallback: default.mp3 для аудио)
+app.use('/uploads', (req, res, next) => {
+  const filePath = path.join(__dirname, 'uploads', req.path);
+  if (req.path.endsWith('.mp3') && !require('fs').existsSync(filePath)) {
+    return res.sendFile(path.join(__dirname, 'uploads', 'tracks', 'default.mp3'));
+  }
+  next();
+}, express.static(path.join(__dirname, 'uploads')));
 
 // Роуты
 app.use('/api/auth', require('./routes/auth'));
