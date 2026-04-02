@@ -80,6 +80,32 @@ exports.getMe = async (req, res) => {
   }
 };
 
+// Получить liked треки
+exports.getLikedTracks = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).populate({
+      path: 'likedTracks',
+      populate: { path: 'artist', select: 'name artistName avatar artistImage' }
+    });
+    res.json(user.likedTracks || []);
+  } catch (error) {
+    res.status(500).json({ message: 'Ошибка', error: error.message });
+  }
+};
+
+// Получить saved треки
+exports.getSavedTracks = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).populate({
+      path: 'savedTracks',
+      populate: { path: 'artist', select: 'name artistName avatar artistImage' }
+    });
+    res.json(user.savedTracks || []);
+  } catch (error) {
+    res.status(500).json({ message: 'Ошибка', error: error.message });
+  }
+};
+
 // Стать артистом
 exports.becomeArtist = async (req, res) => {
   try {
