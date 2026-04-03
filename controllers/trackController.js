@@ -336,3 +336,108 @@ exports.deleteTrack = async (req, res) => {
     res.status(500).json({ message: 'Ошибка удаления', error: error.message });
   }
 };
+
+// ===== Профиль артиста =====
+exports.getArtistProfile = async (req, res) => {
+  try {
+    const artist = await User.findOne({ _id: req.params.id, role: 'artist' })
+      .select('name artistName artistBio artistImage isVerified createdAt');
+    if (!artist) return res.status(404).json({ message: 'Артист не найден' });
+
+    const tracks = await Track.find({ artist: artist._id, isPublished: true })
+      .sort('-playCount')
+      .populate('artist', 'name artistName avatar artistImage');
+
+    const stats = await Track.aggregate([
+      { $match: { artist: artist._id } },
+      { $group: {
+        _id: null,
+        trackCount: { $sum: 1 },
+        totalPlays: { $sum: '$playCount' },
+        totalLikes: { $sum: '$likesCount' },
+        avgRating: { $avg: '$averageRating' },
+      }}
+    ]);
+
+    res.json({
+      artist,
+      tracks,
+      stats: stats[0] || { trackCount: 0, totalPlays: 0, totalLikes: 0, avgRating: 0 },
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Ошибка', error: error.message });
+  }
+};
+
+// ===== Все артисты =====
+exports.getAllArtists = async (req, res) => {
+  try {
+    const artists = await User.find({ role: 'artist' })
+      .select('name artistName artistBio artistImage isVerified');
+
+    const stats = await Track.aggregate([
+      { $group: {
+        _id: '$artist',
+        trackCount: { $sum: 1 },
+        totalPlays: { $sum: '$playCount' },
+        totalLikes: { $sum: '$likesCount' },
+      }},
+      { $sort: { totalPlays: -1 } },
+    ]);
+
+    const statsMap = {};
+    stats.forEach(s => { statsMap[s._id.toString()] = s; });
+
+    const result = artists.map(a => ({
+      _id: a._id,
+      name: a.name,
+      artistName: a.artistName,
+      artistImage: a.artistImage,
+      isVerified: a.isVerified,
+      trackCount: statsMap[a._id.toString()]?.trackCount || 0,
+      totalPlays: statsMap[a._id.toString()]?.totalPlays || 0,
+      totalLikes: statsMap[a._id.toString()]?.totalLikes || 0,
+    })).sort((a, b) => b.totalPlays - a.totalPlays);
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: 'Ошибка', error: error.message });
+  }
+};
+
+// ===== Альбомы =====
+exports.getAlbums = async (req, res) => {
+  try {
+    const { limit = 20 } = req.query;
+    const albums = await Track.aggregate([
+      { $match: { album: { $nin: [null, '', 'Синглы'] }, isPublished: true } },
+      { $group: {
+        _id: '$album',
+        artistName: { $first: '$artistName' },
+        artist: { $first: '$artist' },
+        trackCount: { $sum: 1 },
+        totalPlays: { $sum: '$playCount' },
+        coverImage: { $first: '$coverImage' },
+      }},
+      { $sort: { totalPlays: -1 } },
+      { $limit: parseInt(limit) },
+    ]);
+    res.json({ albums });
+  } catch (error) {
+    res.status(500).json({ message: 'Ошибка', error: error.message });
+  }
+};
+
+// ===== Треки альбома =====
+exports.getAlbumTracks = async (req, res) => {
+  try {
+    const tracks = await Track.find({ album: req.params.name, isPublished: true })
+      .populate('artist', 'name artistName avatar artistImage')
+      .sort('createdAt');
+    const totalPlays = tracks.reduce((s, t) => s + t.playCount, 0);
+    const artistName = tracks.length > 0 ? tracks[0].artistName : '';
+    res.json({ tracks, albumName: req.params.name, artistName, totalPlays });
+  } catch (error) {
+    res.status(500).json({ message: 'Ошибка', error: error.message });
+  }
+};

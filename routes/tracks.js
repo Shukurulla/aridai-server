@@ -10,6 +10,10 @@ router.get('/new', tc.getNewTracks);
 router.get('/recommendations', optionalAuth, tc.getRecommendations);
 router.get('/slug/:slug', tc.getTrackBySlug);
 router.get('/artist/:artistId', tc.getArtistTracks);
+router.get('/artists', tc.getAllArtists);
+router.get('/artists/:id/profile', tc.getArtistProfile);
+router.get('/albums', tc.getAlbums);
+router.get('/albums/:name', tc.getAlbumTracks);
 router.get('/:id', tc.getTrackById);
 
 // Воспроизведение
